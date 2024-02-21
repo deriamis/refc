@@ -1,0 +1,35 @@
+.SUFFIXES         += .d
+TOPDIR            := $(dir $(CURDIR)/$(firstword $(MAKEFILE_LIST)))
+CLEAN             := clean distclean mostlyclean
+
+SRCDIR            := src/
+SRCINCLUDEDIR     := include/
+TESTDIR           := test/
+UTILSDIR          := util/
+
+BUILDDIR          := build/
+OBJDIR            := $(BUILDDIR)obj/
+DEPDIR            := $(OBJDIR).deps/
+
+TARGET_DIR        := $(BUILDDIR)target/
+TARGET_BINDIR     := $(TARGET_DIR)bin/
+TARGET_SBINDIR    := $(TARGET_DIR)sbin/
+TARGET_LIBEXECDIR := $(TARGET_DIR)libexec/
+TARGET_DATADIR    := $(TARGET_DIR)share/
+TARGET_SYSCONFDIR := $(TARGET_DIR)etc/
+TARGET_INCLUDEDIR := $(TARGET_DIR)include/
+TARGET_DOCDIR     := $(TARGET_DATADIR)doc/$(PACKAGE_NAME)/
+TARGET_INFODIR    := $(TARGET_DATADIR)info/
+TARGET_LIBDIR     := $(TARGET_DIR)lib/
+TARGET_LISPDIR    := $(TARGET_DATADIR)emacs/site-lisp/
+TARGET_LOCALEDIR  := $(TARGET_DATADIR)locale/
+TARGET_MANDIR     := $(TARGET_DATADIR)man/
+TARGET_MAN1DIR    := $(TARGET_MANDIR)man1/
+TARGET_MAN2DIR    := $(TARGET_MANDIR)man2/
+TARGET_MAN3DIR    := $(TARGET_MANDIR)man3/
+TARGET_MAN4DIR    := $(TARGET_MANDIR)man4/
+TARGET_MAN5DIR    := $(TARGET_MANDIR)man5/
+TARGET_MAN6DIR    := $(TARGET_MANDIR)man6/
+TARGET_MAN7DIR    := $(TARGET_MANDIR)man7/
+TARGET_MAN8DIR    := $(TARGET_MANDIR)man8/
+TARGET_MAN9DIR    := $(TARGET_MANDIR)man9/

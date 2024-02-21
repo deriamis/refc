@@ -50,3 +50,12 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Build results
+build/
+configure
+config.mk
+src/config.h
+
+# VIM configuration
+.vimrc
