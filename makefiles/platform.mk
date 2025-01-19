@@ -13,15 +13,19 @@ ifeq ($(OS),Windows_NT)
 
     ifeq ($(PROCESSOR_ARCHITEW6432),AMD64)
         HOST_ARCH := x86_64
+        ARCH_BITS := 64
     else
         ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
             HOST_ARCH := x86_64
+            ARCH_BITS := 64
         endif
         ifeq ($(PROCESSOR_ARCHITECTURE),ARM64)
             HOST_ARCH := arm64
+            ARCH_BITS := 64
         endif
         ifeq ($(PROCESSOR_ARCHITECTURE),X86)
             HOST_ARCH := i686
+            ARCH_BITS := 32
         endif
     endif
 
@@ -60,11 +64,22 @@ ifeq ($(OS),Windows_NT)
         MSVC_HOST_ARCH      := x86
         MSVC_COMPONENT_ARCH := x86.64
     endif
+
+    ifeq ($(TARGET_ARCH),x86_64)
+        MSVC_TARGET_ARCH    := x64
+    endif
+    ifeq ($(TARGET_ARCH),arm64)
+        MSVC_TARGET_ARCH    := arm64
+    endif
+    ifeq ($(TARGET_ARCH),i686)
+        MSVC_TARGET_ARCH    := x86
+    endif
 else
     OS_TYPE      := POSIX
     SHELL        := bash
     EXEEXT       :=
-    HOST_ARCH    := $(shell uname -p)
+    HOST_ARCH    := $(shell uname -m)
+    ARCH_BITS    := $(shell getconf LONG_BIT)
     UNAME_SYSTEM := $(shell uname -s)
 
     ifndef $(TARGET_ARCH)
@@ -73,28 +88,34 @@ else
 
     ifeq ($(UNAME_SYSTEM),Linux)
         HOST_OS := Linux
-        DLLEXT := .so
+        DLLEXT  := .so
     endif
     ifneq ($(filter GNU%,$(UNAME_SYSTEM)),)
         HOST_OS := GNU
-        DLLEXT := .so
+        DLLEXT  := .so
     endif
     ifeq ($(UNAME_SYSTEM),Darwin)
         HOST_OS := Darwin
-        DLLEXT := .dylib
+        DLLEXT  := .dylib
+        SOEXT   := .bundle
     endif
     ifneq ($(filter %BSD,$(UNAME_SYSTEM)),)
         HOST_OS := BSD
-        DLLEXT := .so
+        DLLEXT  := .so
     endif
 endif
 
 ifeq ($(OS_TYPE),Windows)
     ifdef $(VCINSTALLDIR)
-        CC  ?= "$(VCINSTALLDIR)\\bin\\cl.exe"
-        CXX ?= "$(CC)"
-        LD  ?= "$(VCINSTALLDIR)\\bin\\link.exe"
-        AR  ?= "$(VCINSTALLDIR)\\bin\\lib.exe"
+        CC     ?= $(VCINSTALLDIR)\\bin\\cl.exe /NOLOGO
+        CXX    ?= $(CC)
+        LD     ?= $(VCINSTALLDIR)\\bin\\link.exe /NOLOGO
+        AR     ?= $(VCINSTALLDIR)\\bin\\lib.exe /NOLOGO
+        ifeq ($(TARGET_ARCH),x86)
+            IMPLIB ?= $(VCINSTALLDIR)\\bin\\implib.exe -a -c
+        else
+            IMPLIB ?= $(VCINSTALLDIR)\\bin\\mkexp.exe
+        endif
     else
         MSVC_COMPONENT  := Microsoft.VisualStudio.Component.VC.Tools.$(MSVC_ARCH)
         MSVC_INSTALLDIR := $(shell vswhere -latest -products * -requires $(MSVC_COMPONENT) -property installationPath)
@@ -105,17 +126,18 @@ ifeq ($(OS_TYPE),Windows)
             MSVC_VERSION := $(strip $(shell gc -raw "$(MSVC_VERSION_FILE)"))
             MSVC_TOOLSDIR     := $(MSVC_INSTALLDIR)\\VC\\Tools\\MSVC\\$(MSVC_VERSION)\\bin\\Host$(MSVC_HOST_ARCH)\\$(TARGET_ARCH)
 
-            CC                := $(MSVC_TOOLSDIR)\\cl.exe
+            CC                := $(MSVC_TOOLSDIR)\\cl.exe /NOLOGO
             CXX               := $(CC)
-            LD                := $(MSVC_TOOLSDIR)\\link.exe
-            AR                := $(MSVC_TOOLSDIR)\\lib.exe
+            LD                := $(MSVC_TOOLSDIR)\\link.exe /NOLOGO
+            AR                := $(MSVC_TOOLSDIR)\\lib.exe /NOLOGO
         endif
     endif
 endif
 
 ifneq (,$(VCINSTALLDIR)$(MSVC_VERSION))
-    COMPILER := MSVC
-    LINKER   := MSVC
+    COMPILER       := MSVC
+    LINKER         := MSVC
+    TARGET_MACHINE := $(MSVC_TARGET_ARCH)-w(ARCH_BITS)-msvc
 else
     CC_ORIGIN  := $(origin CC)
     CXX_ORIGIN := $(origin CXX)
@@ -125,7 +147,7 @@ else
         # Bootstrap the compiler type so we can execute it later
         FOUND_C_COMPILER := $(shell for prog in $(CC) gcc clang; do \
             prog="$$(which "$${prog}")"; \
-            found="$$("$${prog}" -dM -E "$(UTILSDIR)configure/configure.h" 2>/dev/null \
+            found="$$("$${prog}" -dM -E "$(SUPPORTDIR)platform.h" 2>/dev/null \
                       | grep 'COMPILER_NAME' \
                       | rev | cut -d ' ' -f1 | rev | tr -d \")"; \
             if [[ -n "$${found}" ]]; then \
@@ -140,7 +162,7 @@ else
                  C_COMPILER := $(word 1,$(subst :, ,$(FOUND_C_COMPILER)))
         override CC         := $(word 2,$(subst :, ,$(FOUND_C_COMPILER)))
     else
-        C_COMPILER := $(shell "$(CC)" -dM -E "$(UTILSDIR)configure/configure.h" 2>/dev/null \
+        C_COMPILER := $(shell "$(CC)" -dM -E "$(SUPPORTDIR)platform.h" 2>/dev/null \
                                | grep 'COMPILER_NAME' \
                                | rev | cut -d ' ' -f1 | rev | tr -d '"')
 
@@ -154,7 +176,7 @@ else
         # Bootstrap the compiler type so we can execute it later
         FOUND_CXX_COMPILER := $(shell for prog in $(CXX) g++ clang++; do \
             prog="$$(which "$${prog}")"; \
-            found="$$("$${prog}" -dM -E "$(UTILSDIR)configure/configure.h" 2>/dev/null \
+            found="$$("$${prog}" -dM -E "$(SUPPORTDIR)platform.h" 2>/dev/null \
                       | grep 'COMPILER_NAME' \
                       | rev | cut -d ' ' -f1 | rev | tr -d \")"; \
             if [[ -n "$${found}" ]]; then \
@@ -169,7 +191,7 @@ else
                  CXX_COMPILER := $(word 1,$(subst :, ,$(FOUND_CXX_COMPILER)))
         override CXX          := $(word 2,$(subst :, ,$(FOUND_CXX_COMPILER)))
     else
-        CXX_COMPILER := $(shell "$(CXX)" -dM -E "$(UTILSDIR)configure/configure.h" 2>/dev/null \
+        CXX_COMPILER := $(shell "$(CXX)" -dM -E "$(SUPPORTDIR)platform.h" 2>/dev/null \
                                  | grep 'COMPILER_NAME' \
                                  | rev | cut -d ' ' -f1 | rev | tr -d '"')
 
@@ -178,10 +200,16 @@ else
         endif
     endif
 
+    C_TARGET_MACHINE   := $(shell $(CC) -dumpmachine)
+    CXX_TARGET_MACHINE := $(shell $(CXX) -dumpmachine)
+
     ifneq (,$(filter $(CC_ORIGIN),undefined default))
     ifneq (,$(filter $(CXX_ORIGIN),undefined default))
     ifneq ($(C_COMPILER),$(CXX_COMPILER))
-        $(error "!! C compiler `$(C_COMPILER)' (from: $(CC_ORIGIN)) does not match C++ compiler `$(CXX_COMPILER)' (from: $(CXX_ORIGIN)) !!")
+        $(error "!! Provider of C compiler `$(C_COMPILER)' (from: $(CC_ORIGIN)) does not match provider of C++ compiler `$(CXX_COMPILER)' (from: $(CXX_ORIGIN)) !!")
+    endif
+    ifneq ($(C_TARGET_MACHINE),$(CXX_TARGET_MACHINE))
+        $(error "!! Target of C compiler `$(C_COMPILER)' (from: $(CC_ORIGIN)) does not match target of C++ compiler `$(CXX_COMPILER)' (from: $(CXX_ORIGIN)) !!")
     endif
     endif
     endif
@@ -192,20 +220,22 @@ else
     endif
 
     COMPILER       := $(if $(C_COMPILER),$(C_COMPILER),$(CXX_COMPILER))
+    TARGET_MACHINE := $(if $(C_TARGET_MACHINE),$(C_TARGET_MACHINE),$(CXX_TARGET_MACHINE))
 
     ifneq (,$(filter $(COMPILER),GCC MinGW Clang))
 
-        AR             := $(shell $(TEST_CC) --print-prog-name $(if $(AR),$(AR),ar))
-        AS             := $(shell $(TEST_CC) --print-prog-name $(if $(AS),$(AS),as))
-        RANLIB         := $(shell $(TEST_CC) --print-prog-name $(if $(RANLIB),$(RANLIB),ranlib))
-        OBJCOPY        := $(shell $(TEST_CC) --print-prog-name $(if $(OBJCOPY),$(OBJCOPY),objcopy))
-        STRIP          := $(shell $(TEST_CC) --print-prog-name $(if $(STRIP),$(STROP),strip))
+        LD             := $(shell which $(shell $(TEST_CC) --print-prog-name $(if $(LD),$(LD),ar)))
+        AR             := $(shell which $(shell $(TEST_CC) --print-prog-name $(if $(AR),$(AR),ar)))
+        AS             := $(shell which $(shell $(TEST_CC) --print-prog-name $(if $(AS),$(AS),as)))
+        RANLIB         := $(shell which $(shell $(TEST_CC) --print-prog-name $(if $(RANLIB),$(RANLIB),ranlib)))
+        STRIP          := $(shell which $(shell $(TEST_CC) --print-prog-name $(if $(STRIP),$(STRIP),strip)))
+        DLLTOOL        := $(shell which $(shell $(TEST_CC) --print-prog-name $(if $(DLLTOOL),$(DLLTOOL),dlltool)))
 
         ifeq ($(COMPILER),MinGW)
             override EXEEXT := .exe
             override DLLEXT := .dll
 
-            TEST_CFLAGS := -mconsole
+            TEST_CFLAGS     := -mconsole
         endif
 
         CONFTEST_TEMP      := $(shell mktemp -d conftest.XXXXXXXXXX)
@@ -215,14 +245,14 @@ else
         #       not get used for producing any output in `Makefile`s.
         PREPROCESS_COMMAND := $(strip \
                                   $(shell "$(TEST_CC)" $(CPPFLAGS) $(CFLAGS) $(TEST_CFLAGS) \
-                                      -v -E "$(UTILSDIR)configure/conftests/test_main.c" \
+                                      -v -E "$(SUPPORTDIR)conftests/test_main.c" \
                                       -o "$(CONFTEST_TEMP)/test_main.c.i" 2>&1 \
                                       | tr -d '"' | grep -E -- "/(cc1|clang(-[^[:space:]]+)? -cc1)"))
         PREPROCESSOR_BIN   := $(word 1,$(PREPROCESS_COMMAND))
 
         COMPILE_COMMAND    := $(strip \
                                   $(shell "$(TEST_CC)" $(CPPFLAGS) $(CFLAGS) $(TEST_CFLAGS) \
-                                      -v -S "$(UTILSDIR)configure/conftests/test_main.c" \
+                                      -v -S "$(SUPPORTDIR)conftests/test_main.c" \
                                       -o "$(CONFTEST_TEMP)/test_main.s" 2>&1 \
                                       | tr -d '"' | grep -E -- "/(cc1|clang(-[^[:space:]]+)? -cc1)"))
         COMPILER_BIN       := $(word 1,$(COMPILE_COMMAND))
@@ -248,7 +278,7 @@ else
             FOUND_LINKER   := $(strip \
                             $(shell \
                 "$(TEST_CC)" \
-                    -c "$(UTILSDIR)/configure/conftests/test_main.c" \
+                    -c "$(SUPPORTDIR)conftests/test_main.c" \
                     -o /dev/null \
                     '-###' 2>&1 \
                 | tr -d '"' \
@@ -291,7 +321,7 @@ else
 
         LINKERS_AVAILABLE := $(shell \
             "$(TEST_CC)" $(CPPFLAGS) $(CFLAGS) $(TEST_CFLAGS) \
-                -c "$(UTILSDIR)configure/conftests/test_main.c" \
+                -c "$(SUPPORTDIR)conftests/test_main.c" \
                 -o "$(CONFTEST_TEMP)/test_main.o" \
             2>/dev/null; \
             for linker in $(LD) $(FOUND_LINKER) ld.mold ld.lld ld.bfd ld.gold ld; do \
@@ -299,6 +329,11 @@ else
                    linker_path="$$(which "$${linker}")"; \
                    linker_bin="$$(basename "$${linker_path}")"; \
                    linker_name="$${linker_bin#ld.}"; \
+                   if [[ $(HOST_OS) == Darwin && $${linker_path} == /usr/bin/* ]]; then \
+                       linker_name="Darwin"; \
+                   elif [[ $(HOST_OS) == Windows* || $${linker_bin} == *-mingw32-* ]]; then \
+                       linker_name="MinGW"; \
+                   fi; \
                    echo "$${linker_name}:$${linker_path}"; \
                fi; \
             done \
@@ -318,51 +353,42 @@ else
             override LD     := $(word 2,$(subst :, ,$(firstword $(LINKERS_AVAILABLE))))
         endif
 
-        LINKER_ARGS := $(filter-out $(CONFTEST_TEMP)/test_main.o,\
-                       $(filter-out -o $(CONFTEST_TEMP)/test_main$(EXEEXT),$(LINKER_ARGS)))
-
-        LDFLAGS     += $(shell echo "$(LINKER_ARGS)" \
-            | grep -Eo -- '-arch [^[:space:]]+|-platform_version [^-]*' \
-            | tr '\n' ' ')
-        LDFLAGS     += $(shell echo "$(LINKER_ARGS)" \
-            | grep -Eo -- '--?plugin(=| +)[^[:space:]]+|-plugin-opt=+[^[:space:]]+' \
-            | tr '\n' ' ')
-        LDFLAGS     += $(shell echo "$(LINKER_ARGS)" \
-            | grep -Eo -- '--?(fuse-ld|syslibroot|lto_library|rpath|m(arch|cpu))(=| +)[^[:space:]]+|-(L|m)|[^[:space:]]+' \
-            | tr '\n' ' ')
-        LDFLAGS     += $(shell echo "$(LINKER_ARGS)" \
-            | grep -Eo -- '--?(sysroot|subsystem)(=| +)[^[:space:]]+' \
-            | tr '\n' ' ')
-
-        ifeq ($(HOST_OS),Darwin)
-            # Fixes a duplicate library warning with Homebrew GCC
-            LDFLAGS += -no_warn_duplicate_libraries
+        ifeq ($(LINKER),Darwin)
+            DSYMUTIL     := $(shell which $(shell $(TEST_CC) --print-prog-name $(if $(DSYMUTIL),$(DSYMUTIL),dsymutil)))
+        else
+            OBJCOPY      := $(shell which $(shell $(TEST_CC) --print-prog-name $(if $(OBJCOPY),$(OBJCOPY),objcopy)))
         endif
 
-        LDLIBS     += $(shell echo "$(LINKER_ARGS)" \
+        LINKER_ARGS      := $(filter-out $(CONFTEST_TEMP)/test_main.o,\
+                            $(filter-out -o $(CONFTEST_TEMP)/test_main$(EXEEXT),$(LINKER_ARGS)))
+
+        PLATFORM_LDFLAGS := $(shell echo "$(LINKER_ARGS)" \
+            | grep -Eo -- '-demangle' \
+            | tr '\n' ' ')
+        PLATFORM_LDFLAGS += $(shell echo "$(LINKER_ARGS)" \
+            | grep -Eo -- '-arch [^[:space:]]+|-platform_version [^-]*' \
+            | tr '\n' ' ')
+        PLATFORM_LDFLAGS += $(shell echo "$(LINKER_ARGS)" \
+            | grep -Eo -- '-m[^[:space:]]+' \
+            | tr '\n' ' ')
+        PLATFORM_LDFLAGS += $(shell echo "$(LINKER_ARGS)" \
+            | grep -Eo -- '--?plugin(=| +)[^[:space:]]+|-plugin-opt=+[^[:space:]]+' \
+            | tr '\n' ' ')
+        PLATFORM_LDFLAGS += $(shell echo "$(LINKER_ARGS)" \
+            | grep -Eo -- '--?(syslibroot|lto_library|rpath|m(arch|cpu))(=| +)[^[:space:]]+' \
+            | tr '\n' ' ')
+        PLATFORM_LDFLAGS += $(shell echo "$(LINKER_ARGS)" \
+            | grep -Eo -- '--?(sysroot|subsystem)(=| +)[^[:space:]]+' \
+            | tr '\n' ' ')
+        PLATFORM_LDFLAGS += $(shell echo "$(LINKER_ARGS)" \
+            | grep -Eo -- '-L[^[:space:]]+' \
+            | tr '\n' ' ')
+
+         uniq             =  $(if $1,$(firstword $1) $(call uniq,$(filter-out $(firstword $1),$1)))
+        LDLIBS           := $(call uniq $(shell echo "$(LINKER_ARGS)") \
             | grep -Eo -- '-(l|B)[^[:space:]]+|[^[:space:]]*/lib[^[:space:]]+\.(so|a|dylib)\.?[^[:space:]]*|[^[:space:]]*/crt[^[:space:]]\.o' \
             | grep -Ev -- '-lto_library|libLTO' \
             | tr '\n' ' ')
 
     endif
 endif
-
-E :=
-$(info $(E))
-$(info $(E)  Host OS: $(HOST_OS))
-$(info $(E)Host Arch: $(HOST_ARCH))
-$(info $(E))
-$(info $(E)Toolchain: $(COMPILER))
-$(info $(E)       CC: $(CC))
-$(info $(E)      CXX: $(CXX))
-$(info $(E)       AR: $(AR))
-$(info $(E)       AS: $(AS))
-$(info $(E)   RANLIB: $(RANLIB))
-$(info $(E)  OBJCOPY: $(OBJCOPY))
-$(info $(E)    STRIP: $(STRIP))
-$(info $(E))
-$(info $(E)   Linker: $(LINKER))
-$(info $(E)       LD: $(LD))
-$(info $(E)  LDFLAGS: $(LDFLAGS))
-$(info $(E)   LDLIBS: $(LDLIBS))
-$(info $(E))

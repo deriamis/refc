@@ -10,6 +10,10 @@ typedef struct {
   void *context;
 } Allocator;
 
+#define ALLOC_PADDING_BYTES (char *)0xDEAD
+#define ALLOC_PADDING_LEN sizeof(ALLOC_PADDING_BYTES) * 2 / sizeof(char)
+
+void *Allocator_debug_malloc(char *file, size_t line, size_t size);
 void *Allocator_default_alloc(size_t bytes, void *context);
 void Allocator_default_free(void *ptr, void *context);
 void *Allocator_default_realloc(void *ptr, size_t size, void *context);
